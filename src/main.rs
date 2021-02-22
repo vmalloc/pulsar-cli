@@ -20,7 +20,7 @@ struct Opts {
 
 #[derive(StructOpt)]
 enum Command {
-    Listen {
+    Consume {
         #[structopt(long)]
         topic: String,
 
@@ -34,6 +34,9 @@ enum Command {
         json: bool,
         #[structopt(long)]
         shared: bool,
+
+        #[structopt(long)]
+        ack: bool,
     },
 
     Publish {
@@ -50,12 +53,13 @@ enum Command {
 
 async fn entry_point(opts: Opts) -> Result<()> {
     match opts.command {
-        Command::Listen {
+        Command::Consume {
             subscriber_name,
             topic,
             latest_message,
             json,
             shared,
+            ack,
         } => {
             let mut builder = Pulsar::builder(opts.url.as_str(), TokioExecutor)
                 .build()
@@ -90,6 +94,9 @@ async fn entry_point(opts: Opts) -> Result<()> {
                     }
                 } else {
                     println!("{}", String::from_utf8_lossy(&message.payload.data));
+                }
+                if ack {
+                    consumer.ack(&message).await?;
                 }
             }
             Ok(())
