@@ -2,9 +2,8 @@ use anyhow::Result;
 use chrono::Utc;
 use colored_json::to_colored_json_auto;
 use futures::TryStreamExt;
-use pulsar::{
-    proto::command_subscribe::InitialPosition, ConsumerOptions, Pulsar, SubType, TokioExecutor,
-};
+use log::{info, LevelFilter};
+use pulsar::{ConsumerOptions, Pulsar, SubType, TokioExecutor};
 use serde_json::{json, Value};
 use structopt::StructOpt;
 use termion::color;
@@ -28,7 +27,7 @@ enum Command {
         subscriber_name: String,
 
         #[structopt(long)]
-        latest_message: bool,
+        durable: bool,
 
         #[structopt(long)]
         json: bool,
@@ -56,12 +55,12 @@ async fn entry_point(opts: Opts) -> Result<()> {
         Command::Consume {
             subscriber_name,
             topic,
-            latest_message,
+            durable,
             json,
             shared,
             ack,
         } => {
-            let mut builder = Pulsar::builder(opts.url.as_str(), TokioExecutor)
+            let builder = Pulsar::builder(opts.url.as_str(), TokioExecutor)
                 .build()
                 .await?
                 .consumer()
@@ -71,14 +70,12 @@ async fn entry_point(opts: Opts) -> Result<()> {
                 } else {
                     SubType::Exclusive
                 })
-                .with_topic(topic);
-
-            if latest_message {
-                builder = builder.with_options(ConsumerOptions {
-                    initial_position: Some(InitialPosition::Latest as i32),
+                .with_topic(topic)
+                .with_options(ConsumerOptions {
+                    durable: Some(durable),
                     ..Default::default()
                 });
-            }
+
             let mut consumer = builder.build::<Vec<u8>>().await?;
 
             while let Some(message) = consumer.try_next().await? {
@@ -115,7 +112,7 @@ async fn entry_point(opts: Opts) -> Result<()> {
                 .with_name(producer_name)
                 .build()
                 .await?;
-
+            info!("Connected to Pulsar");
             for i in 0.. {
                 tokio::time::delay_for(interval.into()).await;
                 producer
@@ -127,6 +124,7 @@ async fn entry_point(opts: Opts) -> Result<()> {
                         .as_slice(),
                     )
                     .await?;
+                info!("Published message #{}", i);
             }
             Ok(())
         }
@@ -136,6 +134,9 @@ async fn entry_point(opts: Opts) -> Result<()> {
 #[tokio::main]
 async fn main() {
     let opts = Opts::from_args();
+    env_logger::Builder::new()
+        .filter_level(LevelFilter::Debug)
+        .init();
 
     entry_point(opts).await.expect("Error encountered")
 }
