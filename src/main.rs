@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{naive, DateTime, NaiveDateTime, Utc};
 use colored_json::to_colored_json_auto;
 use futures::TryStreamExt;
 use log::{info, LevelFilter};
@@ -79,7 +79,15 @@ async fn entry_point(opts: Opts) -> Result<()> {
             let mut consumer = builder.build::<Vec<u8>>().await?;
 
             while let Some(message) = consumer.try_next().await? {
-                println!("--");
+                let publish_time = message.metadata().publish_time;
+                let publish_time = DateTime::<Utc>::from_utc(
+                    NaiveDateTime::from_timestamp(
+                        (publish_time / 1000) as i64,
+                        ((publish_time % 1000) * 1_000_000) as u32,
+                    ),
+                    Utc,
+                );
+                println!("-- {}:", publish_time);
                 if json {
                     match serde_json::from_slice::<Value>(&message.payload.data) {
                         Ok(val) => println!("{}", to_colored_json_auto(&val).unwrap()),
