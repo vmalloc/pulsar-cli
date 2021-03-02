@@ -1,10 +1,12 @@
-use anyhow::Result;
-use chrono::{naive, DateTime, NaiveDateTime, Utc};
+use anyhow::{format_err, Result};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use colored_json::to_colored_json_auto;
 use futures::TryStreamExt;
+use itertools::Itertools;
 use log::{info, LevelFilter};
 use pulsar::{ConsumerOptions, Pulsar, SubType, TokioExecutor};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use structopt::StructOpt;
 use termion::color;
 use url::Url;
@@ -47,6 +49,9 @@ enum Command {
 
         #[structopt(long, default_value = "5s")]
         interval: humantime::Duration,
+
+        #[structopt(long = "prop")]
+        properties: Vec<String>,
     },
 }
 
@@ -88,13 +93,25 @@ async fn entry_point(opts: Opts) -> Result<()> {
                     Utc,
                 );
                 println!("-- {}:", publish_time);
+                if !message.metadata().properties.is_empty() {
+                    for item in message.metadata().properties.iter() {
+                        println!(
+                            "{}{}={}{}",
+                            color::Fg(color::Magenta),
+                            item.key,
+                            item.value,
+                            color::Fg(color::Reset)
+                        );
+                    }
+                }
                 if json {
                     match serde_json::from_slice::<Value>(&message.payload.data) {
                         Ok(val) => println!("{}", to_colored_json_auto(&val).unwrap()),
                         Err(_) => eprintln!(
-                            "{}Value {:?} is not JSON",
+                            "{}Value {:?} is not JSON{}",
                             color::Fg(color::Red),
-                            String::from_utf8_lossy(&message.payload.data)
+                            String::from_utf8_lossy(&message.payload.data),
+                            color::Fg(color::Reset)
                         ),
                     }
                 } else {
@@ -111,7 +128,20 @@ async fn entry_point(opts: Opts) -> Result<()> {
             topic,
             producer_name,
             interval,
+            properties,
         } => {
+            let properties = properties
+                .iter()
+                .map(|attr| {
+                    let (key, value) = attr
+                        .splitn(2, '=')
+                        .tuples()
+                        .next()
+                        .ok_or_else(|| format_err!("Invalid attr: {:?}", attr))?;
+                    Ok((key.to_owned(), value.to_owned()))
+                })
+                .collect::<Result<HashMap<_, _>>>()?;
+
             let mut producer = Pulsar::builder(opts.url.as_str(), TokioExecutor)
                 .build()
                 .await?
@@ -123,15 +153,19 @@ async fn entry_point(opts: Opts) -> Result<()> {
             info!("Connected to Pulsar");
             for i in 0.. {
                 tokio::time::delay_for(interval.into()).await;
-                producer
-                    .send(
-                        serde_json::to_vec(&json!({
-                            "iteration": i,
-                            "timestamp": Utc::now(),
-                        }))?
-                        .as_slice(),
-                    )
-                    .await?;
+                let payload = serde_json::to_vec(&json!({
+                    "iteration": i,
+                    "timestamp": Utc::now(),
+                }))?;
+                let properties = properties.clone();
+
+                let message = pulsar::producer::Message {
+                    payload,
+                    properties,
+                    ..Default::default()
+                };
+
+                producer.send(message).await?;
                 info!("Published message #{}", i);
             }
             Ok(())
