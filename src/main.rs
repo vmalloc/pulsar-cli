@@ -4,7 +4,9 @@ use colored_json::to_colored_json_auto;
 use futures::TryStreamExt;
 use itertools::Itertools;
 use log::{info, LevelFilter};
-use pulsar::{ConsumerOptions, Pulsar, SubType, TokioExecutor};
+use pulsar::{
+    proto::command_subscribe::InitialPosition, ConsumerOptions, Pulsar, SubType, TokioExecutor,
+};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use structopt::StructOpt;
@@ -26,15 +28,22 @@ enum Command {
         topic: String,
 
         #[structopt(long, short = "s", default_value = "pulsar-cli")]
-        subscriber_name: String,
+        subscription_name: String,
+
+        #[structopt(long, short = "c", default_value = "pulsar-cli")]
+        consumer_name: String,
 
         #[structopt(long)]
         durable: bool,
 
         #[structopt(long)]
         json: bool,
+
         #[structopt(long)]
         shared: bool,
+
+        #[structopt(long)]
+        earliest: bool,
 
         #[structopt(long)]
         ack: bool,
@@ -58,9 +67,11 @@ enum Command {
 async fn entry_point(opts: Opts) -> Result<()> {
     match opts.command {
         Command::Consume {
-            subscriber_name,
+            subscription_name,
+            consumer_name,
             topic,
             durable,
+            earliest,
             json,
             shared,
             ack,
@@ -69,7 +80,8 @@ async fn entry_point(opts: Opts) -> Result<()> {
                 .build()
                 .await?
                 .consumer()
-                .with_subscription(subscriber_name)
+                .with_consumer_name(consumer_name)
+                .with_subscription(subscription_name)
                 .with_subscription_type(if shared {
                     SubType::Shared
                 } else {
@@ -78,6 +90,7 @@ async fn entry_point(opts: Opts) -> Result<()> {
                 .with_topic(topic)
                 .with_options(ConsumerOptions {
                     durable: Some(durable),
+                    initial_position: earliest.then(|| InitialPosition::Earliest.into()),
                     ..Default::default()
                 });
 
