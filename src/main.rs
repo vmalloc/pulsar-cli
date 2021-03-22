@@ -47,6 +47,12 @@ enum Command {
 
         #[structopt(long)]
         ack: bool,
+
+        #[structopt(long)]
+        forward_to_topic: Option<String>,
+
+        #[structopt(long)]
+        forward_to_url: Option<Url>,
     },
 
     Publish {
@@ -73,10 +79,13 @@ async fn entry_point(opts: Opts) -> Result<()> {
             durable,
             earliest,
             json,
+            forward_to_topic,
+            forward_to_url,
             shared,
             ack,
         } => {
-            let builder = Pulsar::builder(opts.url.as_str(), TokioExecutor)
+            let url = opts.url;
+            let builder = Pulsar::builder(url.as_str(), TokioExecutor)
                 .build()
                 .await?
                 .consumer()
@@ -96,8 +105,26 @@ async fn entry_point(opts: Opts) -> Result<()> {
 
             let mut consumer = builder.build::<Vec<u8>>().await?;
 
+            let mut forward_producer = if let Some(topic) = forward_to_topic {
+                let url = forward_to_url.as_ref().unwrap_or(&url);
+                Some(
+                    Pulsar::builder(url.as_str(), TokioExecutor)
+                        .build()
+                        .await?
+                        .producer()
+                        .with_topic(topic)
+                        .build()
+                        .await?,
+                )
+            } else {
+                None
+            };
+
             while let Some(message) = consumer.try_next().await? {
-                let publish_time = message.metadata().publish_time;
+                let publish_time = message
+                    .metadata()
+                    .event_time
+                    .unwrap_or_else(|| message.metadata().publish_time);
                 let publish_time = DateTime::<Utc>::from_utc(
                     NaiveDateTime::from_timestamp(
                         (publish_time / 1000) as i64,
@@ -130,6 +157,25 @@ async fn entry_point(opts: Opts) -> Result<()> {
                 } else {
                     println!("{}", String::from_utf8_lossy(&message.payload.data));
                 }
+
+                if let Some(forwarder) = forward_producer.as_mut() {
+                    forwarder
+                        .send(pulsar::producer::Message {
+                            payload: message.payload.data.clone(),
+                            properties: message
+                                .payload
+                                .metadata
+                                .properties
+                                .iter()
+                                .cloned()
+                                .map(|i| (i.key, i.value))
+                                .collect(),
+                            event_time: Some(publish_time.timestamp_millis() as u64),
+                            ..Default::default()
+                        })
+                        .await?;
+                }
+
                 if ack {
                     consumer.ack(&message).await?;
                 }
