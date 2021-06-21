@@ -17,10 +17,10 @@ futures = "0.3.12"
 humantime = "2.1.0"
 itertools = "0.10.0"
 log = "0.4.14"
-pulsar = "1.1.0"
+pulsar = "3.0.0"
 serde = "1.0.123"
 serde_json = "1.0.62"
 structopt = "0.3.21"
 termion = "1.5.6"
-tokio = {version = "0.2.25", features = ["macros", "rt-core", "time"]}
+tokio = {version = "1", features = ["macros", "rt-multi-thread", "time"]}
 url = "2.2.1"

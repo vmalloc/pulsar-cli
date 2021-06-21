@@ -4,11 +4,9 @@ use colored_json::to_colored_json_auto;
 use futures::TryStreamExt;
 use itertools::Itertools;
 use log::{info, LevelFilter};
-use pulsar::{
-    proto::command_subscribe::InitialPosition, ConsumerOptions, Pulsar, SubType, TokioExecutor,
-};
+use pulsar::{consumer::InitialPosition, ConsumerOptions, Pulsar, SubType, TokioExecutor};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 use structopt::StructOpt;
 use termion::color;
 use url::Url;
@@ -55,7 +53,7 @@ enum Command {
         forward_to_url: Option<Url>,
     },
 
-    Publish {
+    Produce {
         #[structopt(long)]
         topic: String,
 
@@ -99,7 +97,11 @@ async fn entry_point(opts: Opts) -> Result<()> {
                 .with_topic(topic)
                 .with_options(ConsumerOptions {
                     durable: Some(durable),
-                    initial_position: earliest.then(|| InitialPosition::Earliest.into()),
+                    initial_position: if earliest {
+                        InitialPosition::Earliest
+                    } else {
+                        InitialPosition::default()
+                    },
                     ..Default::default()
                 });
 
@@ -183,7 +185,7 @@ async fn entry_point(opts: Opts) -> Result<()> {
             Ok(())
         }
 
-        Command::Publish {
+        Command::Produce {
             topic,
             producer_name,
             interval,
@@ -211,7 +213,7 @@ async fn entry_point(opts: Opts) -> Result<()> {
                 .await?;
             info!("Connected to Pulsar");
             for i in 0.. {
-                tokio::time::delay_for(interval.into()).await;
+                tokio::time::sleep(interval.into()).await;
                 let payload = serde_json::to_vec(&json!({
                     "iteration": i,
                     "timestamp": Utc::now(),
@@ -224,8 +226,23 @@ async fn entry_point(opts: Opts) -> Result<()> {
                     ..Default::default()
                 };
 
-                producer.send(message).await?;
-                info!("Published message #{}", i);
+                loop {
+                    match tokio::time::timeout(
+                        Duration::from_secs(30),
+                        producer.send(message.clone()),
+                    )
+                    .await
+                    .map_err(|_| anyhow::format_err!("Timeout"))
+                    .and_then(|r| r.map_err(anyhow::Error::from))
+                    {
+                        Ok(_) => {
+                            info!("Published message #{}", i);
+                            break;
+                        }
+                        Err(e) => info!("Error prublishing message: {:?} ", e),
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await
+                }
             }
             Ok(())
         }
@@ -233,11 +250,11 @@ async fn entry_point(opts: Opts) -> Result<()> {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let opts = Opts::from_args();
     env_logger::Builder::new()
         .filter_level(LevelFilter::Debug)
         .init();
 
-    entry_point(opts).await.expect("Error encountered")
+    entry_point(opts).await
 }
