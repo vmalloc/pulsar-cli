@@ -239,7 +239,7 @@ async fn entry_point(opts: Opts) -> Result<()> {
                             info!("Published message #{}", i);
                             break;
                         }
-                        Err(e) => info!("Error prublishing message: {:?} ", e),
+                        Err(e) => info!("Error publishing message: {:?} ", e),
                     }
                     tokio::time::sleep(Duration::from_secs(1)).await
                 }
