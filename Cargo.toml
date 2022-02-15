@@ -2,6 +2,7 @@
 authors = ["rotemy"]
 description = "Easier CLI for Apache Pulsar"
 edition = "2018"
+keywords = ["settings", "config", "configuration"]
 license = "MIT"
 name = "pulsar-cli"
 version = "0.5.1"
@@ -10,17 +11,17 @@ version = "0.5.1"
 
 [dependencies]
 anyhow = "1.0.38"
-chrono = {version = "0.4.19", features = ["serde"]}
-colored_json = "2.1.0"
-env_logger = "0.8.3"
-futures = "0.3.12"
-humantime = "2.1.0"
-itertools = "0.10.0"
-log = "0.4.14"
-pulsar = "3.0.0"
+chrono = {version = "0.4", features = ["serde"]}
+colored_json = "2.1"
+env_logger = "0.8"
+futures = "0.3"
+humantime = "2.1"
+itertools = "0.10"
+log = "0.4"
+pulsar = {version = "4", git = "https://github.com/wyyerd/pulsar-rs", branch = "master"}
 serde = "1.0.123"
 serde_json = "1.0.62"
 structopt = "0.3.21"
 termion = "1.5.6"
 tokio = {version = "1", features = ["macros", "rt-multi-thread", "time"]}
-url = "2.2.1"
+url = "2"
