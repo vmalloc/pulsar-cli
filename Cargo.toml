@@ -10,6 +10,7 @@ version = "1.0.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+again = "0.1.2"
 anyhow = "1.0.38"
 chrono = {version = "0.4", features = ["serde"]}
 colored_json = "2.1"
