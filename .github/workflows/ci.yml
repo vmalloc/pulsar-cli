@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Install protoc
+        run: sudo apt install -y protobuf-compiler
       - uses: actions/checkout@v2
       - name: Clippy
         run: cargo clippy --tests --workspace
